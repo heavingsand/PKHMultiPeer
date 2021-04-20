@@ -1,0 +1,6 @@
+framework module PKHMultiPeer {
+  umbrella header "PKHMultiPeer-umbrella.h"
+
+  export *
+  module * { export * }
+}

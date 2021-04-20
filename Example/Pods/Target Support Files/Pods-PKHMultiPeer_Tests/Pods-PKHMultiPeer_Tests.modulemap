@@ -1,0 +1,6 @@
+framework module Pods_PKHMultiPeer_Tests {
+  umbrella header "Pods-PKHMultiPeer_Tests-umbrella.h"
+
+  export *
+  module * { export * }
+}
