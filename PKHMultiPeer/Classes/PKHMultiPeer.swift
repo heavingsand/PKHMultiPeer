@@ -16,26 +16,52 @@ enum MultiPeerType: String {
 
 enum DevicesType {
     case browser
-    case invitation
     case connect
 }
 
 public protocol PKHMultiPeerDelegate {
+    /// 发现设备
+    /// - Parameter device: 设备信息
+    func didDiscoverDevice(device: Device)
+    
+    /// 丢失设备
+    /// - Parameter device: 设备信息
+    func didLostDevice(device: Device)
     
     /// 接收到设备的邀请
     /// - Parameters:
     ///   - device: 请求设备
     ///   - invitationHandler: 邀请回调
-    func receiveInvitation(from device: Device, invitationHandler: @escaping (Bool) -> Void)
+    func receiveInvitation(from device: Device, invitationHandler:(_ accpet: Bool) -> ())
+    
+    /// 设备连接状态改变
+    /// - Parameters:
+    ///   - device: 设备信息
+    ///   - state: 连接状态
+    func connectStateDidChange(from device: Device, state: ConnectStatus)
+    
+    /// 断开设备连接
+    /// - Parameter device: 设备信息
+    func didDisconnect(with device: Device)
 }
 
 extension PKHMultiPeerDelegate {
-    func receiveInvitation(from device: Device, invitationHandler: @escaping (Bool) -> Void) {
+    func didDiscoverDevice(device: Device) {}
+    
+    func didLostDevice(device: Device) {}
+    
+    func receiveInvitation(from device: Device, invitationHandler:(_ accpet: Bool) -> ()) {
         invitationHandler(false)
     }
+    
+    func connectStateDidChange(from device: Device, state: ConnectStatus) {}
+    
+    func didDisconnect(with device: Device) {}
 }
 
-private let RequestTimeoutInterval: TimeInterval = 15
+private let ScanTimeOut: TimeInterval = 10                      // 扫描超时时间
+private let RequestTimeoutInterval: TimeInterval = 15           // 连接校验时间
+private let InvitationTimeOut: TimeInterval = 5                 // 邀请超时时间(用于处理网络缓存)
 
 public class PKHMultiPeer: NSObject {
     //MARK: - Property
@@ -48,14 +74,14 @@ public class PKHMultiPeer: NSObject {
     /// 扫描设备列表
     private(set) var browseDevices: [Device] = []
     /// 邀请设备列表
-    private(set) var invitationDevices: [Device] = []
+//    private(set) var invitationDevices: [Device] = []
     /// 连接设备列表
     private(set) var connectDevices: [Device] = []
     /// 服务类型
     private var serviceType: String
     
-    private let multipeerQueue: dispatch_queue_concurrent_t = {
-        let multipeerQueue = dispatch_queue_concurrent_t(label: "multipeerQueue")
+    private let multipeerQueue: dispatch_queue_serial_t = {
+        let multipeerQueue = dispatch_queue_serial_t(label: "multipeerQueue")
         return multipeerQueue
     }()
     
@@ -162,9 +188,12 @@ extension PKHMultiPeer {
     }
     
     /// 请求连接
-    /// - Parameter device: <#device description#>
-    public func requestConnect(device: Device) {
+    /// - Parameter device: 设备信息
+    public func requestConnect(to device: Device) {
+        let context = try! JSONSerialization.data(withJSONObject: myDevice.formatDict(), options: .prettyPrinted)
+        browser.invitePeer(device.peerID, to: session, withContext: context, timeout: RequestTimeoutInterval)
         
+        reloadDevices(device: device, type: .connect)
     }
     
     public func disconnect() {
@@ -176,7 +205,39 @@ extension PKHMultiPeer {
 //MARK: - MCSessionDelegate
 extension PKHMultiPeer: MCSessionDelegate {
     public func session(_ session: MCSession, peer peerID: MCPeerID, didChange state: MCSessionState) {
-        
+        multipeerQueue.async {
+            guard let device = self.findDevice(with: peerID.displayName, type: .connect) else {
+                MPLog("没有找到对应设备: \(peerID.displayName)")
+                return
+            }
+            
+            MPLog("设备状态变更:\(device.deviceName) : \(state)")
+            
+            self.delegate?.connectStateDidChange(from: device, state: ConnectStatus(rawValue: state.rawValue)!)
+            
+            self.myDevice.connectStatus = ConnectStatus(rawValue: state.rawValue)!
+            
+            switch state {
+            case .notConnected:
+                switch self.peerType {
+                case .browser:
+                    break
+                case .advertiser:
+                    break
+                }
+                break
+            case .connecting:
+                break
+            case .connected:
+                switch self.peerType {
+                case .browser:
+                    break
+                case .advertiser:
+                    break
+                }
+                break
+            }
+        }
     }
     
     public func session(_ session: MCSession, didReceive stream: InputStream, withName streamName: String, fromPeer peerID: MCPeerID) {
@@ -202,21 +263,13 @@ extension PKHMultiPeer: MCNearbyServiceBrowserDelegate {
         multipeerQueue.async {
             MPLog("foundPeer \(peerID.displayName)")
             
-            guard let info = info else { return }
+            guard let info = info, var device = Device.device(with: peerID, contextInfo: info) else { return }
             
-            var device = Device.device(with: peerID, contextInfo: info)
             device.uuid = peerID.displayName
-            device.connectFlag = .check
-            device.lastBeatTimestamp = Date().timeIntervalSince1970
             
-            /// 尝试发起连接校验设备是否可用
-            var discoveryInfo = self.myDevice.formatDict()
-            discoveryInfo["connect_flag"] = "0"
-            let context = try! JSONSerialization.data(withJSONObject: discoveryInfo, options: .prettyPrinted)
+            self.reloadDevices(device: device, type: .browser)
             
-            self.browser.invitePeer(peerID, to: self.session, withContext: context, timeout: RequestTimeoutInterval)
-            
-            self.reloadDevices(device: device, type: .invitation)
+            self.delegate?.didDiscoverDevice(device: device)
         }
     }
     
@@ -232,6 +285,8 @@ extension PKHMultiPeer: MCNearbyServiceBrowserDelegate {
             let index = self.browseDevices.firstIndex(where: {$0.uuid == newDevice.uuid})!
             self.browseDevices.remove(at: index)
             objc_sync_exit(self.browseDevices)
+            
+            self.delegate?.didLostDevice(device: newDevice)
         }
     }
     
@@ -240,7 +295,30 @@ extension PKHMultiPeer: MCNearbyServiceBrowserDelegate {
 //MARK: - MCNearbyServiceAdvertiserDelegate
 extension PKHMultiPeer: MCNearbyServiceAdvertiserDelegate {
     public func advertiser(_ advertiser: MCNearbyServiceAdvertiser, didReceiveInvitationFromPeer peerID: MCPeerID, withContext context: Data?, invitationHandler: @escaping (Bool, MCSession?) -> Void) {
-        
+        multipeerQueue.async {
+            guard let context = context,
+                  let contextData = try? JSONSerialization.jsonObject(with: context, options: .mutableLeaves),
+                  let contextDic = contextData as? [String : String],
+                  let device = Device.device(with: peerID, contextInfo: contextDic) else {
+                MPLog("设备数据错误")
+                invitationHandler(false, self.session)
+                return
+            }
+            
+            self.delegate?.receiveInvitation(from: device, invitationHandler: { [weak self] (accept) in
+                guard let strongSelf = self else { return }
+                if accept {
+                    strongSelf.reloadDevices(device: device, type: .connect)
+                    invitationHandler(true, strongSelf.session)
+                }else {
+                    invitationHandler(false, strongSelf.session)
+                }
+            })
+        }
+    }
+    
+    public func advertiser(_ advertiser: MCNearbyServiceAdvertiser, didNotStartAdvertisingPeer error: Error) {
+        MPLog("MCNearbyServiceAdvertiser广播出错 : \(error)")
     }
     
 }
@@ -251,26 +329,23 @@ extension PKHMultiPeer {
         
         switch type {
         case .browser:
+            objc_sync_enter(browseDevices)
             if let oldDevice = oldDevice {
                 let index = browseDevices.firstIndex(where: {$0.uuid == oldDevice.uuid})!
                 browseDevices[index] = device
             }else {
                 browseDevices.append(device)
             }
-        case .invitation:
-            if let oldDevice = oldDevice {
-                let index = invitationDevices.firstIndex(where: {$0.uuid == oldDevice.uuid})!
-                invitationDevices[index] = device
-            }else {
-                invitationDevices.append(device)
-            }
+            objc_sync_exit(browseDevices)
         case .connect:
+            objc_sync_enter(connectDevices)
             if let oldDevice = oldDevice {
                 let index = connectDevices.firstIndex(where: {$0.uuid == oldDevice.uuid})!
                 connectDevices[index] = device
             }else {
                 connectDevices.append(device)
             }
+            objc_sync_exit(connectDevices)
         }
     }
     
@@ -279,8 +354,6 @@ extension PKHMultiPeer {
         switch type {
         case .browser:
             deviceArr = browseDevices
-        case .invitation:
-            deviceArr = invitationDevices
         case .connect:
             deviceArr = connectDevices
         }

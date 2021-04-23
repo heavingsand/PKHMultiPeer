@@ -8,14 +8,13 @@
 import UIKit
 import MultipeerConnectivity.MCPeerID
 
-enum ConnectStatus {
-    case idle                       // 空闲
-    case connecting                 // 连接中
-    case connected                  // 已连接
-    case disconnecting              // 断开连接中
+public enum ConnectStatus: Int {
+    case notConnected = 0       // 空闲
+    case connecting = 1         // 连接中
+    case connected = 2          // 已连接
 }
 
-enum ConnectFlag: Int {
+public enum ConnectFlag: Int {
     case check = 0              // 校验
     case connect = 1            // 连接
 }
@@ -28,19 +27,13 @@ public struct Device {
     /// peerID
     var peerID: MCPeerID
     /// 连接状态
-    var connectStatus: ConnectStatus = .idle
+    var connectStatus: ConnectStatus = .notConnected
     /// 输入流
     var inputStream: InputStream?
     /// 输出流
     var outputStream: OutputStream?
     /// 接收数据
     var receiveData: Data?
-    /// 连接标志位
-    var connectFlag: ConnectFlag = .check
-    /// 上次活跃时间
-    var lastBeatTimestamp: TimeInterval = 0
-    /// 设备邀请回调
-    var invitationHandler:((_ accpet: Bool, _ session: MCSession?) -> ())?
     
     /// 格式化设备信息
     /// - Returns: 设备信息
@@ -48,14 +41,18 @@ public struct Device {
         var retDic: [String: String] = [:]
         retDic["device_name"] = deviceName
         retDic["uuid"] = uuid
-        retDic["connect_flag"] = String(connectFlag.rawValue)
         return retDic
     }
     
-    static func device(with peerID: MCPeerID, contextInfo info: [String : String]) -> Device {
-        let deviceName: String = info["device_name"] ?? ""
-        var device = Device(deviceName: deviceName, peerID: peerID)
-        device.connectFlag = ConnectFlag(rawValue: Int(info["connect_flag"] ?? "0") ?? 0) ?? .check
+    static func device(with peerID: MCPeerID, contextInfo info: [String : String]) -> Device? {
+        let deviceName: String? = info["device_name"]
+        
+        guard let newDeviceName = deviceName else {
+            return nil
+        }
+        
+        var device = Device(deviceName: newDeviceName, peerID: peerID)
+        device.uuid = info["uuid"] ?? Device.generateUUID()
         return device
     }
     
