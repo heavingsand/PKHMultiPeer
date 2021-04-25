@@ -9,7 +9,7 @@ import UIKit
 import MultipeerConnectivity
 
 /// 连接身份
-enum MultiPeerType: String {
+public enum MultiPeerType: String {
     case browser = "browser"                    // 扫描
     case advertiser = "advertiser"              // 广播
 }
@@ -32,7 +32,7 @@ public protocol PKHMultiPeerDelegate {
     /// - Parameters:
     ///   - device: 请求设备
     ///   - invitationHandler: 邀请回调
-    func receiveInvitation(from device: Device, invitationHandler:(_ accpet: Bool) -> ())
+    func receiveInvitation(from device: Device, invitationHandler:@escaping (_ accpet: Bool) -> ())
     
     /// 设备连接状态改变
     /// - Parameters:
@@ -45,7 +45,7 @@ public protocol PKHMultiPeerDelegate {
     func didDisconnect(with device: Device)
 }
 
-extension PKHMultiPeerDelegate {
+public extension PKHMultiPeerDelegate {
     func didDiscoverDevice(device: Device) {}
     
     func didLostDevice(device: Device) {}
@@ -73,8 +73,6 @@ public class PKHMultiPeer: NSObject {
     private(set) var peerType: MultiPeerType
     /// 扫描设备列表
     private(set) var browseDevices: [Device] = []
-    /// 邀请设备列表
-//    private(set) var invitationDevices: [Device] = []
     /// 连接设备列表
     private(set) var connectDevices: [Device] = []
     /// 服务类型
@@ -100,53 +98,26 @@ public class PKHMultiPeer: NSObject {
     ///   - device: 当前设备
     ///   - peerType: 标识扫描端/广播端
     ///   - serviceType: Bonjour services(详见info.plist)
-    init(device: Device, peerType: MultiPeerType, serviceType: String) {
+    public init(device: Device, peerType: MultiPeerType, serviceType: String) {
         self.myDevice = device
         self.peerType = peerType
         self.serviceType = serviceType
     }
     
-    //MARK: - Lazyload
-    private lazy var myPeerID: MCPeerID = {
-        guard self.myDevice.uuid.count > 0 else {
-            fatalError("uuid is empty")
-        }
-        
-        let peerIDData = UserDefaults.standard.data(forKey: self.myDevice.uuid)
-        let peerID: MCPeerID?
-        
-        if let peerIDData = peerIDData, peerIDData.count > 0 {
-            peerID = NSKeyedUnarchiver.unarchiveObject(with: peerIDData) as? MCPeerID
-            guard let peerID = peerID else {
-                fatalError("restore peerID failure")
-            }
-            return peerID
-        }else {
-            peerID = MCPeerID(displayName: self.myDevice.uuid)
-            guard let peerID = peerID else {
-                fatalError("new peerID failure")
-            }
-            let newPeerIDData = NSKeyedArchiver.archivedData(withRootObject: peerID)
-            UserDefaults.standard.setValue(newPeerIDData, forKey: self.myDevice.uuid)
-            UserDefaults.standard.synchronize()
-            return peerID
-        }
-    }()
-    
     private lazy var session: MCSession = {
-        let session = MCSession(peer: self.myPeerID, securityIdentity: nil, encryptionPreference: .none)
+        let session = MCSession(peer: self.myDevice.peerID, securityIdentity: nil, encryptionPreference: .none)
         session.delegate = self
         return session
     }()
     
     private lazy var browser: MCNearbyServiceBrowser = {
-        let browser = MCNearbyServiceBrowser(peer: self.myPeerID, serviceType: self.serviceType)
+        let browser = MCNearbyServiceBrowser(peer: self.myDevice.peerID, serviceType: self.serviceType)
         browser.delegate = self
         return browser
     }()
     
     private lazy var advertiser: MCNearbyServiceAdvertiser = {
-        let advertiser = MCNearbyServiceAdvertiser(peer: self.myPeerID,
+        let advertiser = MCNearbyServiceAdvertiser(peer: self.myDevice.peerID,
                                                    discoveryInfo: self.myDevice.formatDict(),
                                                    serviceType: self.serviceType)
         advertiser.delegate = self
@@ -160,30 +131,30 @@ extension PKHMultiPeer {
     /// 开始匹配
     public func startMatching() {
         if peerType == .browser {
-            objc_sync_enter(browser)
+            objc_sync_enter(self)
             browser.startBrowsingForPeers()
-            objc_sync_exit(browser)
+            objc_sync_exit(self)
         }
         
         if peerType == .advertiser {
-            objc_sync_enter(advertiser)
+            objc_sync_enter(self)
             advertiser.startAdvertisingPeer()
-            objc_sync_exit(advertiser)
+            objc_sync_exit(self)
         }
     }
     
     /// 结束匹配
     public func stopMatching() {
         if peerType == .browser {
-            objc_sync_enter(browser)
+            objc_sync_enter(self)
             browser.stopBrowsingForPeers()
-            objc_sync_exit(browser)
+            objc_sync_exit(self)
         }
         
         if peerType == .advertiser {
-            objc_sync_enter(advertiser)
+            objc_sync_enter(self)
             advertiser.stopAdvertisingPeer()
-            objc_sync_exit(advertiser)
+            objc_sync_exit(self)
         }
     }
     
@@ -197,7 +168,7 @@ extension PKHMultiPeer {
     }
     
     public func disconnect() {
-        
+        session.disconnect()
     }
     
 }
@@ -206,7 +177,7 @@ extension PKHMultiPeer {
 extension PKHMultiPeer: MCSessionDelegate {
     public func session(_ session: MCSession, peer peerID: MCPeerID, didChange state: MCSessionState) {
         multipeerQueue.async {
-            guard let device = self.findDevice(with: peerID.displayName, type: .connect) else {
+            guard var device = self.findDevice(with: peerID.displayName, type: .connect) else {
                 MPLog("没有找到对应设备: \(peerID.displayName)")
                 return
             }
@@ -217,24 +188,16 @@ extension PKHMultiPeer: MCSessionDelegate {
             
             self.myDevice.connectStatus = ConnectStatus(rawValue: state.rawValue)!
             
+            device.connectStatus = ConnectStatus(rawValue: state.rawValue)!
+            
             switch state {
             case .notConnected:
-                switch self.peerType {
-                case .browser:
-                    break
-                case .advertiser:
-                    break
-                }
+                self.removeDevice(with: device.peerID.displayName, type: .connect)
                 break
             case .connecting:
                 break
             case .connected:
-                switch self.peerType {
-                case .browser:
-                    break
-                case .advertiser:
-                    break
-                }
+                self.reloadDevices(device: device, type: .connect)
                 break
             }
         }
@@ -263,9 +226,7 @@ extension PKHMultiPeer: MCNearbyServiceBrowserDelegate {
         multipeerQueue.async {
             MPLog("foundPeer \(peerID.displayName)")
             
-            guard let info = info, var device = Device.device(with: peerID, contextInfo: info) else { return }
-            
-            device.uuid = peerID.displayName
+            guard let info = info, let device = Device.device(with: peerID, contextInfo: info) else { return }
             
             self.reloadDevices(device: device, type: .browser)
             
@@ -281,10 +242,7 @@ extension PKHMultiPeer: MCNearbyServiceBrowserDelegate {
             
             guard let newDevice = device else { return }
             
-            objc_sync_enter(self.browseDevices)
-            let index = self.browseDevices.firstIndex(where: {$0.uuid == newDevice.uuid})!
-            self.browseDevices.remove(at: index)
-            objc_sync_exit(self.browseDevices)
+            self.removeDevice(with: newDevice.peerID.displayName, type: .browser)
             
             self.delegate?.didLostDevice(device: newDevice)
         }
@@ -325,27 +283,23 @@ extension PKHMultiPeer: MCNearbyServiceAdvertiserDelegate {
 
 extension PKHMultiPeer {
     private func reloadDevices(device: Device, type: DevicesType) {
-        let oldDevice = findDevice(with: device.uuid, type: type)
-        
         switch type {
         case .browser:
-            objc_sync_enter(browseDevices)
-            if let oldDevice = oldDevice {
-                let index = browseDevices.firstIndex(where: {$0.uuid == oldDevice.uuid})!
+            objc_sync_enter(self)
+            if let index = browseDevices.firstIndex(where: {$0.peerID.displayName == device.peerID.displayName}) {
                 browseDevices[index] = device
             }else {
                 browseDevices.append(device)
             }
-            objc_sync_exit(browseDevices)
+            objc_sync_exit(self)
         case .connect:
-            objc_sync_enter(connectDevices)
-            if let oldDevice = oldDevice {
-                let index = connectDevices.firstIndex(where: {$0.uuid == oldDevice.uuid})!
+            objc_sync_enter(self)
+            if let index = connectDevices.firstIndex(where: {$0.peerID.displayName == device.peerID.displayName}) {
                 connectDevices[index] = device
             }else {
                 connectDevices.append(device)
             }
-            objc_sync_exit(connectDevices)
+            objc_sync_exit(self)
         }
     }
     
@@ -359,12 +313,29 @@ extension PKHMultiPeer {
         }
         
         for device in deviceArr {
-            if device.uuid == uuid {
+            if device.peerID.displayName == uuid {
                 return device
             }
         }
         
         return nil
+    }
+    
+    private func removeDevice(with uuid: String, type: DevicesType) {
+        switch type {
+        case .browser:
+            objc_sync_enter(self)
+            if let index = browseDevices.firstIndex(where: {$0.peerID.displayName == uuid}) {
+                browseDevices.remove(at: index)
+            }
+            objc_sync_exit(self)
+        case .connect:
+            objc_sync_enter(self)
+            if let index = connectDevices.firstIndex(where: {$0.peerID.displayName == uuid}) {
+                connectDevices.remove(at: index)
+            }
+            objc_sync_exit(self)
+        }
     }
 }
 

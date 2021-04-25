@@ -4,6 +4,7 @@ platform :ios, '9.0'
 
 target 'PKHMultiPeer_Example' do
   pod 'PKHMultiPeer', :path => '../'
+  pod 'SnapKit'
 
   target 'PKHMultiPeer_Tests' do
     inherit! :search_paths

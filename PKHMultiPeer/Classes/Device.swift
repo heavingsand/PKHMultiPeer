@@ -21,11 +21,9 @@ public enum ConnectFlag: Int {
 
 public struct Device {
     /// 设备名称
-    var deviceName: String
-    /// UUID
-    var uuid: String = Device.generateUUID()
+    public var deviceName: String
     /// peerID
-    var peerID: MCPeerID
+    public var peerID: MCPeerID
     /// 连接状态
     var connectStatus: ConnectStatus = .notConnected
     /// 输入流
@@ -35,30 +33,53 @@ public struct Device {
     /// 接收数据
     var receiveData: Data?
     
+    public init(deviceName: String) {
+        self.init(deviceName: deviceName, peerID: Device.generatePeerID())
+    }
+    
+    init(deviceName: String, peerID: MCPeerID) {
+        self.deviceName = deviceName
+        self.peerID = peerID
+    }
+
     /// 格式化设备信息
     /// - Returns: 设备信息
     func formatDict() -> Dictionary<String, String> {
         var retDic: [String: String] = [:]
         retDic["device_name"] = deviceName
-        retDic["uuid"] = uuid
+        retDic["uuid"] = peerID.displayName
         return retDic
     }
     
-    static func device(with peerID: MCPeerID, contextInfo info: [String : String]) -> Device? {
+    public static func device(with peerID: MCPeerID, contextInfo info: [String : String]) -> Device? {
         let deviceName: String? = info["device_name"]
-        
         guard let newDeviceName = deviceName else {
             return nil
         }
         
-        var device = Device(deviceName: newDeviceName, peerID: peerID)
-        device.uuid = info["uuid"] ?? Device.generateUUID()
+        let device = Device(deviceName: newDeviceName, peerID: peerID)
         return device
     }
     
-    private static func generateUUID() -> String {
-        let uuidString: String = CFUUIDCreateString(nil, CFUUIDCreate(nil)) as String
-        return uuidString
+    static func generatePeerID() -> MCPeerID {
+        let peerIDCachekey = "PKHMultiPeerPeerID"
+        let peerIDData = UserDefaults.standard.data(forKey: peerIDCachekey)
+        
+        if let peerIDData = peerIDData {
+            let peerID = NSKeyedUnarchiver.unarchiveObject(with: peerIDData) as? MCPeerID
+            guard let newPeerID = peerID else {
+                fatalError("restore peerID failure")
+            }
+            return newPeerID
+        }else {
+            let uuidString: String = CFUUIDCreateString(nil, CFUUIDCreate(nil)) as String
+            let peerID = MCPeerID(displayName: uuidString)
+            
+            let peerIDData = NSKeyedArchiver.archivedData(withRootObject: peerID)
+            UserDefaults.standard.setValue(peerIDData, forKey: peerIDCachekey)
+            UserDefaults.standard.synchronize()
+            return peerID
+        }
     }
     
 }
