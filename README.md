@@ -1,15 +1,16 @@
 # PKHMultiPeer
 
-[![CI Status](https://img.shields.io/travis/943147350@qq.com/PKHMultiPeer.svg?style=flat)](https://travis-ci.org/943147350@qq.com/PKHMultiPeer)
-[![Version](https://img.shields.io/cocoapods/v/PKHMultiPeer.svg?style=flat)](https://cocoapods.org/pods/PKHMultiPeer)
-[![License](https://img.shields.io/cocoapods/l/PKHMultiPeer.svg?style=flat)](https://cocoapods.org/pods/PKHMultiPeer)
-[![Platform](https://img.shields.io/cocoapods/p/PKHMultiPeer.svg?style=flat)](https://cocoapods.org/pods/PKHMultiPeer)
+[![Platform](https://img.shields.io/badge/platform-iOS-red.svg)](https://github.com/heavingsand/PKHMultiPeer)
+[![Language](https://img.shields.io/badge/language-Swift-orange.svg)](https://github.com/heavingsand/PKHMultiPeer)
+[![Version](https://img.shields.io/badge/version-1.0.2-brightgreen.svg)](https://github.com/heavingsand/PKHMultiPeer)
+
+## Description
+
+MultipeerConnectivity近场通讯
 
 ## Example
 
 To run the example project, clone the repo, and run `pod install` from the Example directory first.
-
-## Requirements
 
 ## Installation
 
@@ -22,7 +23,7 @@ pod 'PKHMultiPeer'
 
 ## Author
 
-943147350@qq.com, aa943147350@163.com
+Heavingsand, aa943147350@163.com
 
 ## License
 
