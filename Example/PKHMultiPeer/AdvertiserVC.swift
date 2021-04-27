@@ -17,6 +17,12 @@ class AdvertiserVC: UIViewController {
         multiPeer.startMatching()
     }
     
+    override func viewWillDisappear(_ animated: Bool) {
+        super.viewWillDisappear(animated)
+        
+        multiPeer.stopMatching()
+    }
+    
     //MARK: - Lazyload
     lazy var multiPeer: PKHMultiPeer = {
         let multiPeer = PKHMultiPeer(device: Device(deviceName: UIDevice.current.name),
@@ -26,10 +32,19 @@ class AdvertiserVC: UIViewController {
         return multiPeer
     }()
 
+    lazy var imageView: UIImageView = {
+        let imageView = UIImageView()
+        self.view.addSubview(imageView)
+        imageView.snp.makeConstraints { (make) in
+            make.top.equalTo(15)
+            make.left.right.equalToSuperview()
+            make.height.equalTo(400)
+        }
+        return imageView
+    }()
 }
 
 extension AdvertiserVC: PKHMultiPeerDelegate {
-    
     func receiveInvitation(from device: Device, invitationHandler: @escaping (Bool) -> ()) {
         DispatchQueue.main.async {
             let alertVC = UIAlertController(title: device.deviceName, message: "请求连接", preferredStyle: .alert)
@@ -52,6 +67,14 @@ extension AdvertiserVC: PKHMultiPeerDelegate {
     
     func didDisconnect(with device: Device) {
         print("\(device.deviceName)断开连接")
+    }
+    
+    func didReceivedData(_ data: Data, form device: Device) {
+        if let image = UIImage(data: data) {
+            DispatchQueue.main.async {
+                self.imageView.image = image
+            }
+        }
     }
     
 }

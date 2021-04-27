@@ -21,34 +21,28 @@ enum DevicesType {
 
 public protocol PKHMultiPeerDelegate {
     /// 发现设备
-    /// - Parameter device: 设备信息
-    func didDiscoverDevice(device: Device)
+    func didDiscoverDevice(_ device: Device)
     
     /// 丢失设备
-    /// - Parameter device: 设备信息
-    func didLostDevice(device: Device)
+    func didLostDevice(_ device: Device)
     
     /// 接收到设备的邀请
-    /// - Parameters:
-    ///   - device: 请求设备
-    ///   - invitationHandler: 邀请回调
     func receiveInvitation(from device: Device, invitationHandler:@escaping (_ accpet: Bool) -> ())
     
     /// 设备连接状态改变
-    /// - Parameters:
-    ///   - device: 设备信息
-    ///   - state: 连接状态
     func connectStateDidChange(from device: Device, state: ConnectStatus)
     
     /// 断开设备连接
-    /// - Parameter device: 设备信息
     func didDisconnect(with device: Device)
+    
+    /// 收到数据
+    func didReceivedData(_ data: Data, form device: Device)
 }
 
 public extension PKHMultiPeerDelegate {
-    func didDiscoverDevice(device: Device) {}
+    func didDiscoverDevice(_ device: Device) {}
     
-    func didLostDevice(device: Device) {}
+    func didLostDevice(_ device: Device) {}
     
     func receiveInvitation(from device: Device, invitationHandler:(_ accpet: Bool) -> ()) {
         invitationHandler(false)
@@ -57,6 +51,8 @@ public extension PKHMultiPeerDelegate {
     func connectStateDidChange(from device: Device, state: ConnectStatus) {}
     
     func didDisconnect(with device: Device) {}
+    
+    func didReceivedData(_ data: Data, form device: Device) {}
 }
 
 private let ScanTimeOut: TimeInterval = 10                      // 扫描超时时间
@@ -167,8 +163,52 @@ extension PKHMultiPeer {
         reloadDevices(device: device, type: .connect)
     }
     
+    /// 断开连接
     public func disconnect() {
         session.disconnect()
+    }
+    
+}
+
+//MARK: - Transmission
+extension PKHMultiPeer {
+    
+    /// 发送data数据
+    @discardableResult
+    public func sendData(_ data: Data, device: Device) -> Bool {
+        do {
+            try session.send(data, toPeers: [device.peerID], with: .reliable)
+            return true
+        } catch {
+            MPLog("数据发送出错: \(error)")
+            return false
+        }
+    }
+    
+    /// 发送资源文件
+    public func sendResource(with filePath: String, device: Device) {
+        let url = URL(fileURLWithPath: filePath)
+        let fileName = url.lastPathComponent
+        session.sendResource(at: url, withName: fileName, toPeer: device.peerID) { (error) in
+            MPLog("数据发送: \(String(describing: error))")
+        }
+    }
+    
+    /// 发送流数据
+    public func sendStream(with data: Data, device: Device) {
+        guard let outputStream = device.outputStream,
+              outputStream.hasSpaceAvailable,
+              outputStream.streamStatus == .open else {
+            MPLog("Stream 出错")
+            return
+        }
+        
+        dataQueue.async {
+            let bytes = data.withUnsafeBytes {
+                [UInt8](UnsafeBufferPointer(start: $0, count: data.count))
+            }
+            outputStream.write([UInt8](data), maxLength: data.count)
+        }
     }
     
 }
@@ -184,39 +224,50 @@ extension PKHMultiPeer: MCSessionDelegate {
             
             MPLog("设备状态变更:\(device.deviceName) : \(state)")
             
-            self.delegate?.connectStateDidChange(from: device, state: ConnectStatus(rawValue: state.rawValue)!)
-            
             self.myDevice.connectStatus = ConnectStatus(rawValue: state.rawValue)!
             
             device.connectStatus = ConnectStatus(rawValue: state.rawValue)!
             
+            self.delegate?.connectStateDidChange(from: device, state: ConnectStatus(rawValue: state.rawValue)!)
+            
             switch state {
             case .notConnected:
                 self.removeDevice(with: device.peerID.displayName, type: .connect)
-                break
             case .connecting:
                 break
             case .connected:
                 self.reloadDevices(device: device, type: .connect)
-                break
             }
         }
     }
     
     public func session(_ session: MCSession, didReceive stream: InputStream, withName streamName: String, fromPeer peerID: MCPeerID) {
-        
+        multipeerQueue.async {
+            MPLog("获取到一个输入流: \(peerID.displayName)")
+            
+            if let index = self.connectDevices.firstIndex(where: {$0.peerID.displayName == peerID.displayName}),
+               self.connectDevices[index].connectStatus == .connected {
+                self.connectDevices[index].inputStream = stream
+                self.startStream(stream: stream)
+            }
+        }
     }
     
     public func session(_ session: MCSession, didStartReceivingResourceWithName resourceName: String, fromPeer peerID: MCPeerID, with progress: Progress) {
-        
+        MPLog("开始接收文件: \(progress)")
     }
     
     public func session(_ session: MCSession, didFinishReceivingResourceWithName resourceName: String, fromPeer peerID: MCPeerID, at localURL: URL?, withError error: Error?) {
-        
+        MPLog("文件接收完毕")
     }
     
     public func session(_ session: MCSession, didReceive data: Data, fromPeer peerID: MCPeerID) {
-        
+        dataQueue.sync {
+            if let index = self.connectDevices.firstIndex(where: {$0.peerID.displayName == peerID.displayName}),
+               self.connectDevices[index].connectStatus == .connected {
+                self.delegate?.didReceivedData(data, form: self.connectDevices[index])
+            }
+        }
     }
 }
 
@@ -230,7 +281,7 @@ extension PKHMultiPeer: MCNearbyServiceBrowserDelegate {
             
             self.reloadDevices(device: device, type: .browser)
             
-            self.delegate?.didDiscoverDevice(device: device)
+            self.delegate?.didDiscoverDevice(device)
         }
     }
     
@@ -244,7 +295,7 @@ extension PKHMultiPeer: MCNearbyServiceBrowserDelegate {
             
             self.removeDevice(with: newDevice.peerID.displayName, type: .browser)
             
-            self.delegate?.didLostDevice(device: newDevice)
+            self.delegate?.didLostDevice(newDevice)
         }
     }
     
@@ -279,6 +330,40 @@ extension PKHMultiPeer: MCNearbyServiceAdvertiserDelegate {
         MPLog("MCNearbyServiceAdvertiser广播出错 : \(error)")
     }
     
+}
+
+//MARK: - treamDelegate
+extension PKHMultiPeer: StreamDelegate {
+    public func stream(_ aStream: Stream, handle eventCode: Stream.Event) {
+        dataQueue.async {
+            switch eventCode {
+            case .openCompleted:
+                MPLog("连接完成")
+            case .hasBytesAvailable:
+                let index = self.connectDevices.firstIndex(where: { ($0.inputStream?.isEqual(aStream) ?? false) })
+                if let newIndex = index {
+                    if let inputStream = self.connectDevices[newIndex].inputStream,
+                       inputStream.isEqual(aStream) {
+                        var buff = [UInt8](repeating: 0, count: 1024)
+                        let length = inputStream.read(&buff, maxLength: MemoryLayout.size(ofValue: buff))
+                        if length != 0 && length <= MemoryLayout.size(ofValue: buff) {
+                            self.connectDevices[newIndex].receiveData?.append(contentsOf: buff)
+                        }
+                        break
+                    }
+                    
+                }
+            case .hasSpaceAvailable:
+                MPLog("连接完成")
+            case .errorOccurred:
+                MPLog("连接完成")
+            case .endEncountered:
+                MPLog("连接完成")
+            default:
+                break
+            }
+        }
+    }
 }
 
 extension PKHMultiPeer {
@@ -337,6 +422,15 @@ extension PKHMultiPeer {
             objc_sync_exit(self)
         }
     }
+    
+    private func startStream(stream: Stream) {
+        
+    }
+    
+    private func stopStream(stream: Stream) {
+        
+    }
+
 }
 
 func MPLog<T>(_ message : T, file: String = #file, funcName: String = #function, lineNum: Int = #line) {
