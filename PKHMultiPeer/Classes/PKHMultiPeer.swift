@@ -37,6 +37,12 @@ public protocol PKHMultiPeerDelegate {
     
     /// 收到数据
     func didReceivedData(_ data: Data, form device: Device)
+    
+    /// 开始接收文件
+    func didStartReceivingResource(with resourceName: String, device: Device, progress: Progress)
+    
+    /// 结束接收文件
+    func didFinishReceivingResource(with resourceName: String, device: Device, localURL: URL?, error: Error?)
 }
 
 public extension PKHMultiPeerDelegate {
@@ -53,6 +59,10 @@ public extension PKHMultiPeerDelegate {
     func didDisconnect(with device: Device) {}
     
     func didReceivedData(_ data: Data, form device: Device) {}
+    
+    func didStartReceivingResource(with resourceName: String, device: Device, progress: Progress) {}
+    
+    func didFinishReceivingResource(with resourceName: String, device: Device, localURL: URL?, error: Error?) {}
 }
 
 private let ScanTimeOut: TimeInterval = 10                      // 扫描超时时间
@@ -186,10 +196,10 @@ extension PKHMultiPeer {
     }
     
     /// 发送资源文件
-    public func sendResource(with filePath: String, device: Device) {
+    public func sendResource(with filePath: String, device: Device) -> Progress? {
         let url = URL(fileURLWithPath: filePath)
         let fileName = url.lastPathComponent
-        session.sendResource(at: url, withName: fileName, toPeer: device.peerID) { (error) in
+        return session.sendResource(at: url, withName: fileName, toPeer: device.peerID) { (error) in
             MPLog("数据发送: \(String(describing: error))")
         }
     }
@@ -222,7 +232,7 @@ extension PKHMultiPeer: MCSessionDelegate {
                 return
             }
             
-            MPLog("设备状态变更:\(device.deviceName) : \(state)")
+            MPLog("设备状态变更:\(device.deviceName) : \(state.rawValue)")
             
             self.myDevice.connectStatus = ConnectStatus(rawValue: state.rawValue)!
             
@@ -242,7 +252,7 @@ extension PKHMultiPeer: MCSessionDelegate {
     }
     
     public func session(_ session: MCSession, didReceive stream: InputStream, withName streamName: String, fromPeer peerID: MCPeerID) {
-        multipeerQueue.async {
+        dataQueue.async {
             MPLog("获取到一个输入流: \(peerID.displayName)")
             
             if let index = self.connectDevices.firstIndex(where: {$0.peerID.displayName == peerID.displayName}),
@@ -255,10 +265,22 @@ extension PKHMultiPeer: MCSessionDelegate {
     
     public func session(_ session: MCSession, didStartReceivingResourceWithName resourceName: String, fromPeer peerID: MCPeerID, with progress: Progress) {
         MPLog("开始接收文件: \(progress)")
+        dataQueue.async {
+            if let index = self.connectDevices.firstIndex(where: {$0.peerID.displayName == peerID.displayName}),
+               self.connectDevices[index].connectStatus == .connected {
+                self.delegate?.didStartReceivingResource(with: resourceName, device: self.connectDevices[index], progress: progress)
+            }
+        }
     }
     
     public func session(_ session: MCSession, didFinishReceivingResourceWithName resourceName: String, fromPeer peerID: MCPeerID, at localURL: URL?, withError error: Error?) {
         MPLog("文件接收完毕")
+        dataQueue.async {
+            if let index = self.connectDevices.firstIndex(where: {$0.peerID.displayName == peerID.displayName}),
+               self.connectDevices[index].connectStatus == .connected {
+                self.delegate?.didFinishReceivingResource(with: resourceName, device: self.connectDevices[index], localURL: localURL, error: error)
+            }
+        }
     }
     
     public func session(_ session: MCSession, didReceive data: Data, fromPeer peerID: MCPeerID) {

@@ -10,7 +10,11 @@ import UIKit
 import PKHMultiPeer
 
 class AdvertiserVC: UIViewController {
+    //MARK: - Property
+    var progress: Progress?
+    var progressAlert: UIAlertController?
 
+    //MARK: - Life Cycle
     override func viewDidLoad() {
         super.viewDidLoad()
         
@@ -21,6 +25,7 @@ class AdvertiserVC: UIViewController {
         super.viewWillDisappear(animated)
         
         multiPeer.stopMatching()
+        multiPeer.disconnect()
     }
     
     //MARK: - Lazyload
@@ -42,6 +47,19 @@ class AdvertiserVC: UIViewController {
         }
         return imageView
     }()
+}
+
+extension AdvertiserVC {
+    override func observeValue(forKeyPath keyPath: String?, of object: Any?, change: [NSKeyValueChangeKey : Any]?, context: UnsafeMutableRawPointer?) {
+        if let progress = object as? Progress {
+            print("传输进度: \(progress.fractionCompleted)")
+            DispatchQueue.main.async {
+                if progress.fractionCompleted > 0 {
+                    self.progressAlert?.message = "传输进度:\(progress.fractionCompleted)"
+                }
+            }
+        }
+    }
 }
 
 extension AdvertiserVC: PKHMultiPeerDelegate {
@@ -74,6 +92,30 @@ extension AdvertiserVC: PKHMultiPeerDelegate {
             DispatchQueue.main.async {
                 self.imageView.image = image
             }
+        }
+    }
+    
+    func didStartReceivingResource(with resourceName: String, device: Device, progress: Progress) {
+        self.progress = progress
+        self.progress?.addObserver(self, forKeyPath: "completedUnitCount", options: .new, context: nil)
+        
+        DispatchQueue.main.async {
+            self.progressAlert = UIAlertController(title: "接收文件", message: "传输进度:0%", preferredStyle: .alert)
+            self.present(self.progressAlert!, animated: true, completion: nil)
+        }
+    }
+    
+    func didFinishReceivingResource(with resourceName: String, device: Device, localURL: URL?, error: Error?) {
+        DispatchQueue.main.async {
+            if let newError = error {
+                self.progressAlert?.message = "文件传输出错:\(newError)"
+                print("数据传输出错: \(newError)")
+            }else {
+                self.progressAlert?.message = "文件传输完成"
+            }
+            
+            self.progress?.removeObserver(self, forKeyPath: "completedUnitCount", context: nil)
+            self.progressAlert?.dismiss(animated: true, completion: nil)
         }
     }
     

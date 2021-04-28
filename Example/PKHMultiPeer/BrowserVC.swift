@@ -32,11 +32,13 @@ class BrowserVC: UIViewController {
     
     var connectDevice: Device?
 
+    //MARK: - Life Cycle
     override func viewDidLoad() {
         super.viewDidLoad()
         
         settingCamera()
-        startCaptureDate()
+        fileBtn.setTitle("传输文件", for: .normal)
+        videoBtn.setTitle("传输视频", for: .normal)
         multiPeer.startMatching()
     }
     
@@ -44,6 +46,7 @@ class BrowserVC: UIViewController {
         super.viewWillDisappear(animated)
         
         multiPeer.stopMatching()
+        multiPeer.disconnect()
     }
     
     //MARK: - Lazyload
@@ -60,6 +63,36 @@ class BrowserVC: UIViewController {
         tableView.delegate = self
         tableView.dataSource = self
         return tableView
+    }()
+    
+    lazy var fileBtn: UIButton = {
+        let button = UIButton()
+        self.view.addSubview(button)
+        button.snp.makeConstraints { (make) in
+            make.bottom.equalTo(self.tableView.snp_top).offset(-20)
+            make.size.equalTo(CGSize(width: 180, height: 35))
+            make.centerX.equalToSuperview()
+        }
+        button.setTitle("传输文件", for: .normal)
+        button.setTitleColor(.white, for: .normal)
+        button.backgroundColor = .black
+        button.addTarget(self, action: #selector(sendSourceData(_:)), for: .touchUpInside)
+        return button
+    }()
+    
+    lazy var videoBtn: UIButton = {
+        let button = UIButton()
+        self.view.addSubview(button)
+        button.snp.makeConstraints { (make) in
+            make.bottom.equalTo(self.fileBtn.snp_top).offset(-10)
+            make.size.equalTo(CGSize(width: 180, height: 35))
+            make.centerX.equalToSuperview()
+        }
+        button.setTitle("传输视频", for: .normal)
+        button.setTitleColor(.white, for: .normal)
+        button.backgroundColor = .black
+        button.addTarget(self, action: #selector(sendVideoData(_:)), for: .touchUpInside)
+        return button
     }()
     
     lazy var multiPeer: PKHMultiPeer = {
@@ -113,6 +146,19 @@ extension BrowserVC {
         }
     }
     
+    @objc
+    func sendSourceData(_ sender: UIButton) {
+        if let device = connectDevice, let filePath = Bundle.main.path(forResource: "周杰伦 - 晴天.mp3", ofType: nil) {
+            let progress = multiPeer.sendResource(with: filePath, device: device)
+            progress?.addObserver(self, forKeyPath: "completedUnitCount", options: .new, context: nil)
+        }
+    }
+    
+    @objc
+    func sendVideoData(_ sender: UIButton) {
+        startCaptureDate()
+    }
+    
     func image(from sampleBuffer: CMSampleBuffer) -> UIImage? {
         guard let imageBuffer: CVImageBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else {
             return nil
@@ -138,6 +184,26 @@ extension BrowserVC {
         let image = UIImage(cgImage: quartzImage)
         
         return image
+    }
+    
+    override func observeValue(forKeyPath keyPath: String?, of object: Any?, change: [NSKeyValueChangeKey : Any]?, context: UnsafeMutableRawPointer?) {
+        if let progress = object as? Progress {
+            print("传输进度: \(progress.fractionCompleted)")
+            DispatchQueue.main.async {
+                if progress.fractionCompleted > 0 {
+                    self.fileBtn.setTitle("传输进度:\(progress.fractionCompleted)", for: .normal)
+                }
+            }
+            
+            if progress.fractionCompleted == 1.0 {
+                progress.removeObserver(self, forKeyPath: "completedUnitCount", context: nil)
+                DispatchQueue.main.async {
+                    if progress.fractionCompleted > 0 {
+                        self.fileBtn.setTitle("文件发送成功", for: .normal)
+                    }
+                }
+            }
+        }
     }
 }
 

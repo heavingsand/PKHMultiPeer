@@ -15,6 +15,7 @@
 		607FACE01AFB9204008FA782 /* LaunchScreen.xib in Resources */ = {isa = PBXBuildFile; fileRef = 607FACDE1AFB9204008FA782 /* LaunchScreen.xib */; };
 		607FACEC1AFB9204008FA782 /* Tests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 607FACEB1AFB9204008FA782 /* Tests.swift */; };
 		75613383D9427FFE3A42B220 /* Pods_PKHMultiPeer_Example.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = DD57F766D96A495CA550D888 /* Pods_PKHMultiPeer_Example.framework */; };
+		9D06352A2637FC8A00B359E6 /* 周杰伦 - 晴天.mp3 in Resources */ = {isa = PBXBuildFile; fileRef = 9D0635292637FC8A00B359E6 /* 周杰伦 - 晴天.mp3 */; };
 		9D9ABB6A263520550061C97F /* BrowserVC.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9D9ABB69263520550061C97F /* BrowserVC.swift */; };
 		9D9ABB6E2635206E0061C97F /* AdvertiserVC.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9D9ABB6D2635206E0061C97F /* AdvertiserVC.swift */; };
 /* End PBXBuildFile section */
@@ -45,6 +46,7 @@
 		607FACEB1AFB9204008FA782 /* Tests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tests.swift; sourceTree = "<group>"; };
 		6327AE671C0E16BDD1EF7CCC /* Pods-PKHMultiPeer_Tests.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-PKHMultiPeer_Tests.debug.xcconfig"; path = "Target Support Files/Pods-PKHMultiPeer_Tests/Pods-PKHMultiPeer_Tests.debug.xcconfig"; sourceTree = "<group>"; };
 		734BB1E8AF755DCE38644CB9 /* PKHMultiPeer.podspec */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text; name = PKHMultiPeer.podspec; path = ../PKHMultiPeer.podspec; sourceTree = "<group>"; xcLanguageSpecificationIdentifier = xcode.lang.ruby; };
+		9D0635292637FC8A00B359E6 /* 周杰伦 - 晴天.mp3 */ = {isa = PBXFileReference; lastKnownFileType = audio.mp3; path = "周杰伦 - 晴天.mp3"; sourceTree = "<group>"; };
 		9D9ABB69263520550061C97F /* BrowserVC.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserVC.swift; sourceTree = "<group>"; };
 		9D9ABB6D2635206E0061C97F /* AdvertiserVC.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AdvertiserVC.swift; sourceTree = "<group>"; };
 		A28DC22B1209D23774879315 /* LICENSE */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text; name = LICENSE; path = ../LICENSE; sourceTree = "<group>"; };
@@ -108,6 +110,7 @@
 		607FACD21AFB9204008FA782 /* Example for PKHMultiPeer */ = {
 			isa = PBXGroup;
 			children = (
+				9D0635262637FC3E00B359E6 /* Resource */,
 				607FACD51AFB9204008FA782 /* AppDelegate.swift */,
 				607FACD71AFB9204008FA782 /* ViewController.swift */,
 				9D9ABB69263520550061C97F /* BrowserVC.swift */,
@@ -154,6 +157,14 @@
 				A28DC22B1209D23774879315 /* LICENSE */,
 			);
 			name = "Podspec Metadata";
+			sourceTree = "<group>";
+		};
+		9D0635262637FC3E00B359E6 /* Resource */ = {
+			isa = PBXGroup;
+			children = (
+				9D0635292637FC8A00B359E6 /* 周杰伦 - 晴天.mp3 */,
+			);
+			path = Resource;
 			sourceTree = "<group>";
 		};
 		FFDB6FA60EE34D0E75F6E1A2 /* Frameworks */ = {
@@ -257,6 +268,7 @@
 			files = (
 				607FACDB1AFB9204008FA782 /* Main.storyboard in Resources */,
 				607FACE01AFB9204008FA782 /* LaunchScreen.xib in Resources */,
+				9D06352A2637FC8A00B359E6 /* 周杰伦 - 晴天.mp3 in Resources */,
 				607FACDD1AFB9204008FA782 /* Images.xcassets in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
