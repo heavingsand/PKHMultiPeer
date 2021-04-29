@@ -4,7 +4,7 @@ PODS:
   - FBSnapshotTestCase/Core (2.1.4)
   - FBSnapshotTestCase/SwiftSupport (2.1.4):
     - FBSnapshotTestCase/Core
-  - PKHMultiPeer (0.1.0)
+  - PKHMultiPeer (1.0.1)
   - SnapKit (4.2.0)
 
 DEPENDENCIES:
@@ -23,9 +23,9 @@ EXTERNAL SOURCES:
 
 SPEC CHECKSUMS:
   FBSnapshotTestCase: 094f9f314decbabe373b87cc339bea235a63e07a
-  PKHMultiPeer: 4ab6a52cdbe9d84068948246b32e2f8195af588d
+  PKHMultiPeer: 8627689da0a9296ac591587c57a6c86be00cfaff
   SnapKit: fe8a619752f3f27075cc9a90244d75c6c3f27e2a
 
-PODFILE CHECKSUM: 9e459960c4f897357da0b500c4564d0e799e7ad4
+PODFILE CHECKSUM: 0df43c9881d67bb3c0fd9d35e394a90ac093c90b
 
 COCOAPODS: 1.9.2
