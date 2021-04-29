@@ -19,7 +19,7 @@ enum DevicesType {
     case connect
 }
 
-public protocol PKHMultiPeerDelegate {
+public protocol PKHMultiPeerDelegate: class {
     /// 发现设备
     func didDiscoverDevice(_ device: Device)
     
@@ -43,6 +43,9 @@ public protocol PKHMultiPeerDelegate {
     
     /// 结束接收文件
     func didFinishReceivingResource(with resourceName: String, device: Device, localURL: URL?, error: Error?)
+    
+    /// 接收到流数据
+    func didReceivedStreamData(_ data: [UInt8], form device: Device)
 }
 
 public extension PKHMultiPeerDelegate {
@@ -63,41 +66,26 @@ public extension PKHMultiPeerDelegate {
     func didStartReceivingResource(with resourceName: String, device: Device, progress: Progress) {}
     
     func didFinishReceivingResource(with resourceName: String, device: Device, localURL: URL?, error: Error?) {}
+    
+    func didReceivedStreamData(_ data: [UInt8], form device: Device) {}
 }
 
-private let ScanTimeOut: TimeInterval = 10                      // 扫描超时时间
 private let RequestTimeoutInterval: TimeInterval = 15           // 连接校验时间
-private let InvitationTimeOut: TimeInterval = 5                 // 邀请超时时间(用于处理网络缓存)
 
 public class PKHMultiPeer: NSObject {
     //MARK: - Property
     /// 代理
-    public var delegate: PKHMultiPeerDelegate?
+    public weak var delegate: PKHMultiPeerDelegate?
     /// 本机设备
-    private(set) var myDevice: Device
+    public private(set) var myDevice: Device
     /// 对等网络类型
-    private(set) var peerType: MultiPeerType
+    public private(set) var peerType: MultiPeerType
     /// 扫描设备列表
-    private(set) var browseDevices: [Device] = []
+    public private(set) var browseDevices: [Device] = []
     /// 连接设备列表
-    private(set) var connectDevices: [Device] = []
+    public private(set) var connectDevices: [Device] = []
     /// 服务类型
     private var serviceType: String
-    
-    private let multipeerQueue: dispatch_queue_serial_t = {
-        let multipeerQueue = dispatch_queue_serial_t(label: "multipeerQueue")
-        return multipeerQueue
-    }()
-    
-    private let streamQueue: dispatch_queue_serial_t = {
-        let streamQueue = dispatch_queue_serial_t(label: "streamQueue")
-        return streamQueue
-    }()
-    
-    private let dataQueue: dispatch_queue_serial_t = {
-        let dataQueue = dispatch_queue_serial_t(label: "dataQueue")
-        return dataQueue
-    }()
     
     /// 初始化方法
     /// - Parameters:
@@ -108,6 +96,10 @@ public class PKHMultiPeer: NSObject {
         self.myDevice = device
         self.peerType = peerType
         self.serviceType = serviceType
+    }
+    
+    deinit {
+        MPLog("\(Self.self) deinit")
     }
     
     private lazy var session: MCSession = {
@@ -128,6 +120,31 @@ public class PKHMultiPeer: NSObject {
                                                    serviceType: self.serviceType)
         advertiser.delegate = self
         return advertiser
+    }()
+    
+    private lazy var multipeerQueue: dispatch_queue_serial_t = {
+        let multipeerQueue = dispatch_queue_serial_t(label: "multipeerQueue")
+        return multipeerQueue
+    }()
+    
+    private lazy var streamQueue: dispatch_queue_serial_t = {
+        let streamQueue = dispatch_queue_serial_t(label: "streamQueue")
+        return streamQueue
+    }()
+    
+    private lazy var dataQueue: dispatch_queue_serial_t = {
+        let dataQueue = dispatch_queue_serial_t(label: "dataQueue")
+        return dataQueue
+    }()
+    
+    private lazy var resourceQueue: dispatch_queue_serial_t = {
+        let resourceQueue = dispatch_queue_serial_t(label: "resourceQueue")
+        return resourceQueue
+    }()
+    
+    private lazy var streamThread: StreamThread = {
+        let streamThread = StreamThread()
+        return streamThread
     }()
 }
 
@@ -196,6 +213,7 @@ extension PKHMultiPeer {
     }
     
     /// 发送资源文件
+    @discardableResult
     public func sendResource(with filePath: String, device: Device) -> Progress? {
         let url = URL(fileURLWithPath: filePath)
         let fileName = url.lastPathComponent
@@ -204,19 +222,46 @@ extension PKHMultiPeer {
         }
     }
     
+    public func startStream(to device: Device) -> Bool {
+        // 两个peerID之间存在一条stream通道
+        /// 先startStream获取outStream, 然后开启outStream(做线程保活), 然后传输数据
+        /// 关闭outStream, 关闭分线程runloop
+        do {
+            let outputStream = try session.startStream(withName: device.peerID.displayName, toPeer: device.peerID)
+            if let index = connectDevices.firstIndex(where: {$0.peerID.displayName == device.peerID.displayName}) {
+                connectDevices[index].outputStream = outputStream
+                startStream(stream: outputStream)
+                return true
+            }
+            return false
+        } catch  {
+            return false
+        }
+    }
+    
+    public func stopStream(with device: Device) -> Bool {
+        if let index = connectDevices.firstIndex(where: {$0.peerID.displayName == device.peerID.displayName}),
+           let outputStream = connectDevices[index].outputStream {
+            stopStream(stream: outputStream)
+            return true
+        }
+        return false
+    }
+    
     /// 发送流数据
     public func sendStream(with data: Data, device: Device) {
-        guard let outputStream = device.outputStream,
-              outputStream.hasSpaceAvailable,
-              outputStream.streamStatus == .open else {
+        guard let index = connectDevices.firstIndex(where: {$0.peerID.displayName == device.peerID.displayName}),
+           let outputStream = connectDevices[index].outputStream,
+           outputStream.hasSpaceAvailable,
+           outputStream.streamStatus == .open else {
             MPLog("Stream 出错")
             return
         }
         
-        dataQueue.async {
-            let bytes = data.withUnsafeBytes {
-                [UInt8](UnsafeBufferPointer(start: $0, count: data.count))
-            }
+        streamQueue.async {
+//            let bytes = data.withUnsafeBytes {
+//                [UInt8](UnsafeBufferPointer(start: $0, count: data.count))
+//            }
             outputStream.write([UInt8](data), maxLength: data.count)
         }
     }
@@ -252,7 +297,7 @@ extension PKHMultiPeer: MCSessionDelegate {
     }
     
     public func session(_ session: MCSession, didReceive stream: InputStream, withName streamName: String, fromPeer peerID: MCPeerID) {
-        dataQueue.async {
+        streamQueue.async {
             MPLog("获取到一个输入流: \(peerID.displayName)")
             
             if let index = self.connectDevices.firstIndex(where: {$0.peerID.displayName == peerID.displayName}),
@@ -265,7 +310,7 @@ extension PKHMultiPeer: MCSessionDelegate {
     
     public func session(_ session: MCSession, didStartReceivingResourceWithName resourceName: String, fromPeer peerID: MCPeerID, with progress: Progress) {
         MPLog("开始接收文件: \(progress)")
-        dataQueue.async {
+        resourceQueue.async {
             if let index = self.connectDevices.firstIndex(where: {$0.peerID.displayName == peerID.displayName}),
                self.connectDevices[index].connectStatus == .connected {
                 self.delegate?.didStartReceivingResource(with: resourceName, device: self.connectDevices[index], progress: progress)
@@ -275,7 +320,7 @@ extension PKHMultiPeer: MCSessionDelegate {
     
     public func session(_ session: MCSession, didFinishReceivingResourceWithName resourceName: String, fromPeer peerID: MCPeerID, at localURL: URL?, withError error: Error?) {
         MPLog("文件接收完毕")
-        dataQueue.async {
+        resourceQueue.async {
             if let index = self.connectDevices.firstIndex(where: {$0.peerID.displayName == peerID.displayName}),
                self.connectDevices[index].connectStatus == .connected {
                 self.delegate?.didFinishReceivingResource(with: resourceName, device: self.connectDevices[index], localURL: localURL, error: error)
@@ -321,6 +366,11 @@ extension PKHMultiPeer: MCNearbyServiceBrowserDelegate {
         }
     }
     
+    public func browser(_ browser: MCNearbyServiceBrowser, didNotStartBrowsingForPeers error: Error) {
+        MPLog("MCNearbyServiceBrowser扫描出错 : \(error)")
+        stopMatching()
+    }
+    
 }
 
 //MARK: - MCNearbyServiceAdvertiserDelegate
@@ -350,6 +400,7 @@ extension PKHMultiPeer: MCNearbyServiceAdvertiserDelegate {
     
     public func advertiser(_ advertiser: MCNearbyServiceAdvertiser, didNotStartAdvertisingPeer error: Error) {
         MPLog("MCNearbyServiceAdvertiser广播出错 : \(error)")
+        stopMatching()
     }
     
 }
@@ -357,30 +408,37 @@ extension PKHMultiPeer: MCNearbyServiceAdvertiserDelegate {
 //MARK: - treamDelegate
 extension PKHMultiPeer: StreamDelegate {
     public func stream(_ aStream: Stream, handle eventCode: Stream.Event) {
-        dataQueue.async {
+        streamQueue.async {
             switch eventCode {
             case .openCompleted:
-                MPLog("连接完成")
+                MPLog("开启成功")
+            break
             case .hasBytesAvailable:
+                print("接收到数据")
                 let index = self.connectDevices.firstIndex(where: { ($0.inputStream?.isEqual(aStream) ?? false) })
                 if let newIndex = index {
                     if let inputStream = self.connectDevices[newIndex].inputStream,
                        inputStream.isEqual(aStream) {
                         var buff = [UInt8](repeating: 0, count: 1024)
-                        let length = inputStream.read(&buff, maxLength: MemoryLayout.size(ofValue: buff))
-                        if length != 0 && length <= MemoryLayout.size(ofValue: buff) {
-                            self.connectDevices[newIndex].receiveData?.append(contentsOf: buff)
+//                        let length = inputStream.read(&buff, maxLength: MemoryLayout.size(ofValue: buff))
+                        let length = inputStream.read(&buff, maxLength: buff.count)
+                        if length != 0 && length <= buff.count {
+                            self.delegate?.didReceivedStreamData(buff, form: self.connectDevices[newIndex])
                         }
                         break
                     }
                     
                 }
             case .hasSpaceAvailable:
-                MPLog("连接完成")
+                MPLog("有空间可用")
             case .errorOccurred:
-                MPLog("连接完成")
+                MPLog("连接出错")
             case .endEncountered:
-                MPLog("连接完成")
+                MPLog("传输完毕")
+                let index = self.connectDevices.firstIndex(where: { ($0.inputStream?.isEqual(aStream) ?? false) })
+                if let newIndex = index, let inputStream = self.connectDevices[newIndex].inputStream {
+                    self.stopStream(stream: inputStream)
+                }
             default:
                 break
             }
@@ -446,13 +504,27 @@ extension PKHMultiPeer {
     }
     
     private func startStream(stream: Stream) {
-        
+        streamQueue.async {
+            self.streamThread.executeTask { [weak self] in
+                guard let strongSelf = self else { return }
+                stream.open()
+                stream.delegate = strongSelf
+                stream.schedule(in: RunLoop.current, forMode: .defaultRunLoopMode)
+            }
+        }
     }
     
     private func stopStream(stream: Stream) {
-        
+        streamQueue.async {
+            self.streamThread.executeTask { [weak self] in
+                guard let strongSelf = self else { return }
+                stream.close()
+                stream.delegate = strongSelf
+                stream.remove(from: RunLoop.current, forMode: .defaultRunLoopMode)
+            }
+            self.streamThread.stop()
+        }
     }
-
 }
 
 func MPLog<T>(_ message : T, file: String = #file, funcName: String = #function, lineNum: Int = #line) {

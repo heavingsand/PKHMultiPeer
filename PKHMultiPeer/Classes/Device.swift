@@ -30,8 +30,6 @@ public struct Device {
     var inputStream: InputStream?
     /// 输出流
     var outputStream: OutputStream?
-    /// 接收数据
-    var receiveData: Data?
     
     public init(deviceName: String) {
         self.init(deviceName: deviceName, peerID: Device.generatePeerID())

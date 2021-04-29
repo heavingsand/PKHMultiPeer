@@ -31,6 +31,7 @@ class BrowserVC: UIViewController {
     var previewLayer: AVCaptureVideoPreviewLayer?
     
     var connectDevice: Device?
+    var isStartVideo: Bool = false
 
     //MARK: - Life Cycle
     override func viewDidLoad() {
@@ -39,6 +40,7 @@ class BrowserVC: UIViewController {
         settingCamera()
         fileBtn.setTitle("传输文件", for: .normal)
         videoBtn.setTitle("传输视频", for: .normal)
+        dataBtn.setTitle("传输数据", for: .normal)
         multiPeer.startMatching()
     }
     
@@ -95,6 +97,21 @@ class BrowserVC: UIViewController {
         return button
     }()
     
+    lazy var dataBtn: UIButton = {
+        let button = UIButton()
+        self.view.addSubview(button)
+        button.snp.makeConstraints { (make) in
+            make.bottom.equalTo(self.videoBtn.snp_top).offset(-10)
+            make.size.equalTo(CGSize(width: 180, height: 35))
+            make.centerX.equalToSuperview()
+        }
+        button.setTitle("传输数据", for: .normal)
+        button.setTitleColor(.white, for: .normal)
+        button.backgroundColor = .black
+        button.addTarget(self, action: #selector(sendData(_:)), for: .touchUpInside)
+        return button
+    }()
+    
     lazy var multiPeer: PKHMultiPeer = {
         let multiPeer = PKHMultiPeer(device: Device(deviceName: UIDevice.current.name),
                                      peerType: .browser,
@@ -136,7 +153,26 @@ extension BrowserVC {
     func startCaptureDate() {
         if AVCaptureDevice.authorizationStatus(for: .video) == .authorized {
             dispatch_queue_serial_t(label: "serialQueue").async {
-                self.captureSession?.startRunning()
+                
+                if self.isStartVideo {
+                    self.captureSession?.stopRunning()
+                    if let device = self.connectDevice {
+                        let success = self.multiPeer.stopStream(with: device)
+                        if success {
+                            print("流通道关闭成功")
+                        }
+                    }
+                    self.isStartVideo = false
+                }else {
+                    self.captureSession?.startRunning()
+                    if let device = self.connectDevice {
+                        let success = self.multiPeer.startStream(to: device)
+                        if success {
+                            print("流通道开启成功")
+                        }
+                    }
+                    self.isStartVideo = true
+                }
             }
         }else {
             let alertVC = UIAlertController(title: nil, message: "请您设置允许APP访问您的相机->设置->隐私->相机", preferredStyle: .alert)
@@ -157,6 +193,11 @@ extension BrowserVC {
     @objc
     func sendVideoData(_ sender: UIButton) {
         startCaptureDate()
+    }
+    
+    @objc
+    func sendData(_ sender: UIButton) {
+        
     }
     
     func image(from sampleBuffer: CMSampleBuffer) -> UIImage? {
@@ -268,7 +309,8 @@ extension BrowserVC: AVCaptureVideoDataOutputSampleBufferDelegate {
             if let newImage = image(from: sampleBuffer),
                let data = UIImageJPEGRepresentation(newImage, 0.2),
                let device = connectDevice {
-                multiPeer.sendData(data, device: device)
+//                multiPeer.sendData(data, device: device)
+                multiPeer.sendStream(with: data, device: device)
             }
         }
     }

@@ -17,7 +17,7 @@ class AdvertiserVC: UIViewController {
     //MARK: - Life Cycle
     override func viewDidLoad() {
         super.viewDidLoad()
-        
+                
         multiPeer.startMatching()
     }
     
@@ -28,7 +28,12 @@ class AdvertiserVC: UIViewController {
         multiPeer.disconnect()
     }
     
+    deinit {
+        print("\(Self.self) deinit")
+    }
+    
     //MARK: - Lazyload
+    
     lazy var multiPeer: PKHMultiPeer = {
         let multiPeer = PKHMultiPeer(device: Device(deviceName: UIDevice.current.name),
                                      peerType: .advertiser,
@@ -46,6 +51,11 @@ class AdvertiserVC: UIViewController {
             make.height.equalTo(400)
         }
         return imageView
+    }()
+    
+    lazy var receivedData: Data = {
+        let data = Data()
+        return data
     }()
 }
 
@@ -78,15 +88,15 @@ extension AdvertiserVC: PKHMultiPeerDelegate {
             self.present(alertVC, animated: true, completion: nil)
         }
     }
-    
+
     func connectStateDidChange(from device: Device, state: ConnectStatus) {
         print("设备状态信息改变: \(device), state: \(state)")
     }
-    
+
     func didDisconnect(with device: Device) {
         print("\(device.deviceName)断开连接")
     }
-    
+
     func didReceivedData(_ data: Data, form device: Device) {
         if let image = UIImage(data: data) {
             DispatchQueue.main.async {
@@ -94,17 +104,17 @@ extension AdvertiserVC: PKHMultiPeerDelegate {
             }
         }
     }
-    
+
     func didStartReceivingResource(with resourceName: String, device: Device, progress: Progress) {
         self.progress = progress
         self.progress?.addObserver(self, forKeyPath: "completedUnitCount", options: .new, context: nil)
-        
+
         DispatchQueue.main.async {
             self.progressAlert = UIAlertController(title: "接收文件", message: "传输进度:0%", preferredStyle: .alert)
             self.present(self.progressAlert!, animated: true, completion: nil)
         }
     }
-    
+
     func didFinishReceivingResource(with resourceName: String, device: Device, localURL: URL?, error: Error?) {
         DispatchQueue.main.async {
             if let newError = error {
@@ -113,10 +123,14 @@ extension AdvertiserVC: PKHMultiPeerDelegate {
             }else {
                 self.progressAlert?.message = "文件传输完成"
             }
-            
+
             self.progress?.removeObserver(self, forKeyPath: "completedUnitCount", context: nil)
             self.progressAlert?.dismiss(animated: true, completion: nil)
         }
+    }
+    
+    func didReceivedStreamData(_ data: [UInt8], form device: Device) {
+        receivedData.append(contentsOf: data)
     }
     
 }
